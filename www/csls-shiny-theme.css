@@ -1,0 +1,930 @@
+/* ============================================================================
+   CSLS Shiny Theme
+   Matches the csls.ca website (WordPress theme "cslc").
+   Source of truth: https://csls.ca/wp-content/themes/cslc/assets/css/style.css
+   Companion doc: CSLS-Shiny-Style-Spec.md (repo root) -- every value below is
+   copied from that spec; if the site theme changes, re-read style.css and
+   update both files together.
+
+   Install:
+     1. This file lives at www/csls-shiny-theme.css in the Shiny app.
+     2. Loaded from app.R's ui() -- see the tags$link() call there -- as the
+        LAST tag in the page so it wins the cascade over bslib's own
+        Bootstrap bundle without needing !important anywhere below.
+
+   Covers Bootstrap 3 (default Shiny) and Bootstrap 5 (bslib) selectors.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. TOKENS -- copied verbatim from the website's :root block
+   Do not invent new values; add new tokens here and reuse them.
+--------------------------------------------------------------------------- */
+:root {
+  /* Brand colours (website names kept so the two codebases stay greppable) */
+  --color-maple-blue: #012f72;   /* primary / headings / primary button      */
+  --color-jets-blue:  #0598d8;   /* accent / hover / focus / active tab      */
+  --color-red:        #ce2e2e;   /* alerts, negative values                  */
+  --color-black:      #000000;   /* body text                                */
+  --color-white:      #ffffff;
+  --color-light-grey: #d9d9d9;   /* borders, dividers, gridlines             */
+  --color-dark-grey:  #6b6b6b;   /* secondary / muted text, axis labels      */
+  --color-grey:       #f7f7f7;   /* page / panel background wash             */
+
+  /* Typography */
+  --font-base: "Roboto", Arial, sans-serif;
+
+  /* Layout */
+  --container: 1440px;
+  --page-pad: 80px;
+
+  /* Shape */
+  --radius-lg: 16px;             /* cards, panels, wells                     */
+  --radius-md: 8px;              /* inputs, selects, dropdowns, tab tops     */
+  --radius-sm: 4px;              /* checkboxes, small chips                  */
+  --radius-pill: 999px;          /* buttons                                  */
+
+  /* Motion */
+  --transition: 280ms ease;
+
+  /* Elevation -- the site uses exactly two shadows */
+  --shadow-menu:   0 14px 36px rgba(0, 0, 0, .16);  /* dropdowns, popovers   */
+  --shadow-header: 0 14px 36px rgba(0, 0, 0, .18);  /* sticky header only    */
+
+  /* Derived surfaces used on the site */
+  --surface-tint: rgba(5, 152, 216, .1);            /* filter-panel wash     */
+  --surface-card: rgba(255, 255, 255, .88);         /* card over imagery     */
+  --border-hairline: rgba(0, 0, 0, .24);            /* input default border  */
+
+  /* ---- Control metrics (THE numbers that make Shiny match the site) ---- */
+  --control-height: 42px;        /* every text input, select, dropdown       */
+  --control-pad-x: 16px;
+  --control-pad-y: 10px;
+  --control-font-size: 14px;
+  --control-font-weight: 300;
+  --control-line-height: 1.4;
+
+  --button-min-height: 35px;
+  --button-pad: 6.5px 24px;
+  --button-font-size: 16px;
+  --button-font-weight: 600;
+  --button-letter-spacing: .16px;
+
+  --checkbox-size: 24px;
+  --card-pad: 40px;
+  --stack-gap: 24px;             /* vertical rhythm inside filter panels     */
+  --section-pad-y: 64px;
+
+  /* ---- Chart palette (validated, colourblind-safe, 6 series max) ------- */
+  --series-1: #0598d8;  /* CSLS jets blue  */
+  --series-2: #eb6834;  /* orange          */
+  --series-3: #1baf7a;  /* aqua            */
+  --series-4: #eda100;  /* yellow          */
+  --series-5: #7a5af0;  /* violet          */
+  --series-6: #ce2e2e;  /* CSLS red        */
+  --grid-line: #d9d9d9;
+  --axis-text: #6b6b6b;
+}
+
+/* ---------------------------------------------------------------------------
+   2. BASE
+--------------------------------------------------------------------------- */
+/* Bootstrap normally sets this, but declare it so the metrics below hold even
+   if this stylesheet is used without a full Bootstrap reboot. */
+.form-control, .form-select, .selectize-input, .btn, .nav-link,
+.well, .panel, .card, .bslib-card, .csls-card,
+input, select, textarea, .form-check-input {
+  box-sizing: border-box;
+}
+
+body,
+.shiny-input-container,
+.form-control,
+.form-select,
+.btn,
+.nav-link,
+.selectize-input,
+.selectize-dropdown,
+.dropdown-menu,
+input, select, textarea, button,
+table.dataTable {
+  font-family: var(--font-base);
+}
+
+body {
+  color: var(--color-black);
+  background: var(--color-white);
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container-fluid,
+.csls-container {
+  width: min(var(--container), calc(100% - 160px));
+  margin-inline: auto;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   3. TYPOGRAPHY -- the site's scale, verbatim
+--------------------------------------------------------------------------- */
+h1, .h1 { font-size: 44px; line-height: 1.2;  font-weight: 600; letter-spacing: 0; }
+h2, .h2 { font-size: 36px; line-height: 1.2;  font-weight: 600; }
+h3, .h3 { font-size: 22px; line-height: 1.4;  font-weight: 600; }
+h4, .h4 { font-size: 20px; line-height: 1.4;  font-weight: 600; }
+h5, .h5 { font-size: 18px; line-height: 1.4;  font-weight: 600; }
+h6, .h6 { font-size: 16px; line-height: 1.4;  font-weight: 600; }
+
+h1, h2, h3, h4, h5, h6 { color: var(--color-black); margin-top: 0; }
+
+/* Panel/app title -- the site's in-page h2 size */
+.csls-app-title { font-size: 32px; line-height: 1.25; font-weight: 600; }
+
+/* "INTERACTIVE TOOL" style eyebrow label */
+.csls-eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .14px;
+  text-transform: uppercase;
+  color: var(--color-jets-blue);
+}
+
+small, .small, .help-block, .form-text {
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1.4;
+  color: var(--color-dark-grey);
+}
+
+a { color: var(--color-maple-blue); text-decoration: none; transition: color var(--transition); }
+a:hover, a:focus-visible { color: var(--color-jets-blue); text-decoration: none; }
+
+/* Input labels -- sidebar "Variable", "Industry detail", "Compare" etc. */
+.shiny-input-container > label,
+.control-label,
+.form-label {
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--color-black);
+  margin-bottom: 8px;
+}
+
+.csls-group-label {           /* the bold "Compare" style group heading */
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   4. FORM CONTROLS -- 42px tall, 8px radius, 14px/300 text.
+   This is the single biggest source of Shiny-vs-site mismatch: Bootstrap
+   defaults to 34px (BS3) / 38px (BS5) and 4px radius.
+--------------------------------------------------------------------------- */
+.form-control,
+.form-select,
+.selectize-input,
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="date"],
+select,
+textarea {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: var(--control-pad-y) var(--control-pad-x);
+  font-family: var(--font-base);
+  border: .5px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  color: var(--color-black);
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--control-line-height);
+  box-shadow: none;
+  transition: border-color var(--transition);
+}
+
+textarea,
+textarea.form-control {
+  height: auto;
+  min-height: calc(var(--control-height) * 2);
+  padding: var(--control-pad-y) var(--control-pad-x);
+}
+
+.form-control:hover,
+.form-select:hover,
+.selectize-input:hover,
+select:hover,
+textarea:hover,
+.form-control:focus,
+.form-select:focus,
+.selectize-input.focus,
+.selectize-input.input-active,
+select:focus,
+textarea:focus {
+  border: .5px solid var(--color-jets-blue);
+  box-shadow: none;
+  outline: 0;
+}
+
+/* Shiny's selectize binding adds a "form-control" class onto the OUTER
+   .selectize-control wrapper (not just the inner .selectize-input box)
+   whenever the widget starts with no item selected. This app's pickers
+   have since migrated to the custom treeSelectInput widget (see
+   www/tree_select.js), which has no selectize markup at all, so nothing
+   live triggers this today -- kept in case a real selectizeInput with an
+   empty default is ever reintroduced. Selectize's own bundled CSS
+   neutralizes that wrapper back to invisible at rest (.form-control
+   .selectize-control { border: 0; border-radius: 0; ... }) so only the
+   inner, correctly-rounded .selectize-input shows through -- but the
+   :hover/:focus rule above also matches the wrapper via its own
+   ".form-control" class, and at equal specificity, loading later, it
+   wins the border back while the wrapper's border-radius stays zeroed.
+   That drew a sharp-cornered blue outline the same size as the
+   properly rounded box underneath it, i.e. the "shadow of a sharp
+   rectangle" instead of a rounded one. Re-neutralize the wrapper alone
+   on hover/focus at higher specificity so only the inner box's own
+   hover style (already correct, from the rule above) shows. */
+.selectize-control.form-control:hover,
+.selectize-control.form-control:focus,
+.selectize-control.form-control.focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.form-control::placeholder,
+.selectize-input > input::placeholder {
+  color: var(--color-dark-grey);
+  font-weight: 300;
+}
+
+/* --- selectize (Shiny's selectInput / selectizeInput) ------------------- */
+.selectize-control { margin-bottom: 0; }
+
+.selectize-control.single .selectize-input,
+.selectize-control.multi .selectize-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Clicking into the box makes selectize.js add its own state classes
+   (.input-active/.dropdown-active/.focus), and its bundled CSS has a rule
+   -- .selectize-control.single .selectize-input.input-active { display:
+   inline-block; ... } -- that's 4 class-selectors deep vs. our 3-deep rule
+   above. A more specific selector wins regardless of which stylesheet
+   loaded last, so on click the box reverted to inline-block and the text
+   (no longer flex-centered) dropped back down. Re-asserting flex here at
+   matching specificity is what actually wins that tie via load order, same
+   fix shape as the disabled-button rule in the BUTTONS section below. */
+.selectize-control.single .selectize-input.input-active,
+.selectize-control.single .selectize-input.dropdown-active,
+.selectize-control.single .selectize-input.focus,
+.selectize-control.multi .selectize-input.input-active,
+.selectize-control.multi .selectize-input.dropdown-active,
+.selectize-control.multi .selectize-input.focus {
+  display: flex;
+  align-items: center;
+}
+
+/* flex-wrap only for multi -- a multi-value box needs its chips able to
+   wrap onto more than one line as more get added. In single mode wrapping
+   this same flex row let the visible .item text and the (hidden/narrow)
+   search <input> split onto two flex lines inside the fixed 42px box --
+   align-items: center then centered each *line*, not the text itself,
+   which put the item on the bottom line and left the top line empty. */
+.selectize-control.multi .selectize-input {
+  flex-wrap: wrap;
+}
+
+.selectize-control.single .selectize-input:after {   /* caret */
+  border-color: var(--color-black) transparent transparent transparent;
+  right: var(--control-pad-x);
+}
+
+.selectize-control.multi .selectize-input > .item {  /* selected chips */
+  background: var(--surface-tint);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-maple-blue);
+  font-size: 13px;
+  font-weight: 400;
+  padding: 2px 8px;
+}
+
+.selectize-dropdown {
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
+  margin-top: 4px;
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  overflow: hidden;
+}
+
+.selectize-dropdown .option { padding: 10px 16px; }
+
+.selectize-dropdown .active,
+.selectize-dropdown .option:hover {
+  background: var(--surface-tint);
+  color: var(--color-maple-blue);
+}
+
+.selectize-dropdown .optgroup-header {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .12px;
+  text-transform: uppercase;
+  color: var(--color-dark-grey);
+  padding: 10px 16px 6px;
+}
+
+/* Native dropdown menus (dropdownButton, navbar) */
+.dropdown-menu {
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
+  padding: 6px;
+  font-size: var(--control-font-size);
+}
+.dropdown-menu > li > a,
+.dropdown-item {
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-weight: 300;
+}
+.dropdown-menu > li > a:hover,
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background: var(--surface-tint);
+  color: var(--color-maple-blue);
+}
+
+/* ---------------------------------------------------------------------------
+   5. CHECKBOXES & RADIOS -- 24px square, 4px radius, jets-blue when on
+--------------------------------------------------------------------------- */
+.checkbox, .radio,
+.form-check,
+.shiny-options-group .checkbox,
+.shiny-options-group .radio {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 0;
+  margin: 0 0 12px;
+}
+
+/* radioButtons()/checkboxGroupInput() with inline = TRUE render each option
+   as a bare <label class="radio-inline"><input>...</label> -- no wrapping
+   <div class="checkbox">/<div class="radio"> the way the stacked (block)
+   form does -- so it needs its own copy of the same flex/spacing rule
+   above; .checkbox/.radio never matches .checkbox-inline/.radio-inline,
+   they're unrelated class names, not a base+modifier pair. */
+.radio-inline, .checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 0;
+  margin: 0;
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--control-line-height);
+  cursor: pointer;
+}
+
+.checkbox label, .radio label,
+.form-check-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 0;
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: var(--control-line-height);
+  cursor: pointer;
+}
+
+.checkbox input[type="checkbox"],
+.radio input[type="radio"],
+.radio-inline input[type="radio"],
+.checkbox-inline input[type="checkbox"],
+.form-check-input,
+.shiny-input-checkboxgroup input[type="checkbox"],
+.shiny-input-radiogroup input[type="radio"] {
+  position: static;
+  float: none;
+  margin: 0;
+  flex: 0 0 var(--checkbox-size);
+  width: var(--checkbox-size);
+  height: var(--checkbox-size);
+  appearance: none;
+  -webkit-appearance: none;
+  border: .5px solid var(--border-hairline);
+  background: var(--color-white);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.checkbox input[type="checkbox"],
+.checkbox-inline input[type="checkbox"],
+.form-check-input[type="checkbox"] { border-radius: var(--radius-sm); }
+
+.radio input[type="radio"],
+.radio-inline input[type="radio"],
+.form-check-input[type="radio"] { border-radius: 50%; }
+
+/* Bootstrap's own bundled CSS (shiny's www/shared bootstrap bundle ships
+   Shiny-specific compatibility rules for exactly this legacy inline
+   markup: ".shiny-input-container .radio-inline input:checked" etc.) sets
+   a solid background-color directly on :checked -- no dot, no jets blue --
+   and that compound selector (shiny-input-container + radio-inline +
+   :checked, 3 class-level selectors) out-specifies a plain
+   ".radio input[type=radio]:checked" rule regardless of load order. This
+   was rendering the whole circle solid Bootstrap-blue instead of a small
+   jets-blue dot on a white circle. Matching the ".shiny-input-container
+   .radio-inline"/".checkbox-inline" shape here (not just .radio/.checkbox)
+   is what lets our declarations win that specificity tie via load order,
+   same fix shape as the disabled-button and selectize-active-state rules
+   elsewhere in this file. */
+.checkbox input[type="checkbox"]:checked,
+.checkbox-inline input[type="checkbox"]:checked,
+.shiny-input-container .checkbox-inline input:checked,
+.form-check-input[type="checkbox"]:checked {
+  border-color: var(--color-jets-blue);
+  background-color: var(--color-white);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%230598d8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.8'/%3E%3C/svg%3E");
+}
+
+.radio input[type="radio"]:checked,
+.radio-inline input[type="radio"]:checked,
+.shiny-input-container .radio-inline input:checked,
+.form-check-input[type="radio"]:checked {
+  border-color: var(--color-jets-blue);
+  background-color: var(--color-white);
+  background-image: radial-gradient(circle, var(--color-jets-blue) 0 5px, transparent 5px);
+}
+
+.checkbox input:focus-visible,
+.radio input:focus-visible,
+.radio-inline input:focus-visible,
+.checkbox-inline input:focus-visible,
+.form-check-input:focus,
+.form-check-input:focus-visible {
+  border-color: var(--color-jets-blue);
+  outline: 0;
+  box-shadow: none;
+}
+
+/* Inline radio/checkbox groups */
+.shiny-input-container .shiny-options-group { display: flex; flex-direction: column; gap: 0; }
+.shiny-input-container.shiny-input-container-inline .shiny-options-group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+/* ---------------------------------------------------------------------------
+   6. BUTTONS -- pill, 35px min-height, 16px/600
+--------------------------------------------------------------------------- */
+.btn,
+.action-button,
+.btn-default,
+.shiny-download-link {
+  min-height: var(--button-min-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: var(--button-pad);
+  font-family: var(--font-base);
+  font-size: var(--button-font-size);
+  line-height: 1;
+  font-weight: var(--button-font-weight);
+  letter-spacing: var(--button-letter-spacing);
+  color: var(--color-white);
+  background: var(--color-maple-blue);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition),
+              border-color var(--transition), transform var(--transition);
+}
+
+.btn:hover,
+.action-button:hover,
+.shiny-download-link:hover,
+.btn:focus-visible {
+  background: var(--color-jets-blue);
+  color: var(--color-white);
+  transform: translateY(-1px);
+  outline: 0;
+  box-shadow: none;
+}
+
+/* Secondary: starts jets-blue, inverts to maple on hover */
+.btn-secondary,
+.btn-info,
+.csls-btn-secondary {
+  background: var(--color-jets-blue);
+  border: 2px inset transparent;
+}
+.btn-secondary:hover,
+.btn-info:hover,
+.csls-btn-secondary:hover {
+  background: var(--color-maple-blue);
+  border: 2px solid var(--color-white);
+}
+
+/* Outline / tertiary -- for "Add series", "Reset", "Download data" */
+.btn-outline,
+.csls-btn-outline {
+  background: transparent;
+  color: var(--color-maple-blue);
+  border: 1.5px solid var(--color-maple-blue);
+}
+.btn-outline:hover,
+.csls-btn-outline:hover {
+  background: var(--color-maple-blue);
+  color: var(--color-white);
+}
+
+.btn-link {
+  background: transparent;
+  color: var(--color-maple-blue);
+  padding: 0;
+  min-height: 0;
+}
+.btn-link:hover { background: transparent; color: var(--color-jets-blue); transform: none; }
+
+/* :disabled/.disabled is a higher-specificity compound selector than the
+   plain .btn/.action-button classes above (a pseudo-class counts the same
+   as a class), so Bootstrap's own same-shaped .btn:disabled rule -- which
+   resets background/color/border to its own disabled-state variables --
+   wins over those regardless of this stylesheet loading after Bootstrap's.
+   Matching that same compound shape here (not just .btn.disabled) is what
+   lets our colours win the specificity tie via load order, the same way
+   the rest of this file relies on; skipping it left a disabled button
+   rendering as plain unstyled text instead of a faded pill. */
+.btn:disabled, .btn.disabled,
+.action-button:disabled, .action-button.disabled {
+  opacity: .45;
+  transform: none;
+  cursor: not-allowed;
+  background: var(--color-maple-blue);
+  color: var(--color-white);
+  border-color: var(--color-maple-blue);
+}
+
+/* A full-width sidebar button such as "+ Add series" */
+.csls-btn-block { width: 100%; }
+
+/* ---------------------------------------------------------------------------
+   7. TABS -- 8px top radius, 43px rest / 51px active, jets-blue when active
+--------------------------------------------------------------------------- */
+.nav-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0 0 24px;
+  padding-left: 0;
+  border-bottom: 1px solid var(--color-light-grey);
+  gap: 4px;
+  align-items: flex-end;
+}
+.nav-tabs > li { list-style: none; }
+
+.nav-tabs > li > a,
+.nav-tabs .nav-link {
+  min-height: 43px;
+  display: inline-flex;
+  align-items: center;
+  padding: 16px 24px;
+  margin: 0;
+  border: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  color: var(--color-maple-blue);
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 400;
+  transition: background var(--transition), color var(--transition);
+}
+
+.nav-tabs > li > a:hover,
+.nav-tabs .nav-link:hover {
+  background: var(--surface-tint);
+  color: var(--color-maple-blue);
+  border: 0;
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus,
+.nav-tabs .nav-link.active {
+  min-height: 51px;
+  background: var(--color-jets-blue);
+  color: var(--color-white);
+  font-weight: 600;
+  border: 0;
+}
+
+/* Pill nav (radioGroupButtons etc.) */
+.nav-pills .nav-link,
+.btn-group .btn {
+  border-radius: var(--radius-pill);
+}
+
+/* ---------------------------------------------------------------------------
+   8. PANELS, CARDS, WELLS -- 16px radius, 40px padding, 24px internal gap
+--------------------------------------------------------------------------- */
+.well,
+.panel,
+.card,
+.bslib-card,
+.csls-card {
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-white);
+  box-shadow: none;
+  padding: var(--card-pad);
+}
+
+/* Sidebar filter panel -- the site's tinted filter card */
+.well,
+.sidebar,
+.bslib-sidebar-layout > .sidebar,
+.csls-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-gap);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--surface-tint), var(--surface-tint)), var(--color-white);
+}
+
+.bslib-sidebar-layout > .sidebar > .sidebar-content { gap: var(--stack-gap); }
+
+.card-header,
+.panel-heading,
+.bslib-card > .card-header {
+  background: transparent;
+  border: 0;
+  padding: 0 0 16px;
+  font-size: 22px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--color-black);
+}
+
+.card-body,
+.panel-body,
+.bslib-card > .card-body { padding: 0; }
+
+/* Overlay card variant (card sitting on imagery / tinted background) */
+.csls-card-overlay { background: var(--surface-card); }
+
+/* Popovers, tooltips, modals inherit the menu shadow */
+.popover, .tooltip-inner, .modal-content {
+  border: 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-base);
+}
+.modal-content { padding: var(--card-pad); }
+.modal-header, .modal-footer { border: 0; padding: 0; }
+
+/* ---------------------------------------------------------------------------
+   9. TABLES / DT
+--------------------------------------------------------------------------- */
+table.dataTable,
+.table {
+  font-size: var(--control-font-size);
+  font-weight: 300;
+  line-height: var(--control-line-height);
+  color: var(--color-black);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+table.dataTable thead th,
+.table > thead > tr > th {
+  background: var(--surface-tint);
+  color: var(--color-maple-blue);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .14px;
+  border: 0;
+  border-bottom: 1px solid var(--color-light-grey);
+  padding: 12px 16px;
+  white-space: nowrap;
+}
+
+table.dataTable tbody td,
+.table > tbody > tr > td {
+  border: 0;
+  border-bottom: 1px solid var(--color-light-grey);
+  padding: 12px 16px;
+}
+
+table.dataTable tbody tr:hover td { background: rgba(5, 152, 216, .06); }
+
+/* DT's Bootstrap-5 integration renders each page control as
+   <li class="paginate_button page-item ..."><a class="page-link">1</a></li>
+   -- the *actual* visible/clickable chrome is the inner .page-link anchor
+   (Bootstrap's own small bordered box); the .paginate_button/.page-item is
+   just a plain layout <li>. The pill/padding/colour rules used to target
+   .paginate_button itself, which padded an already-fully-sized .page-link
+   from the outside rather than replacing its styling -- the padding added
+   to the (content-box, not border-box) <li> stacked around the anchor's
+   own box, so border-radius: 999px rounded a much bigger combined box than
+   the visible "2" text, producing an oversized pill/circle on hover
+   instead of the number just lighting up. Styling .page-link directly (and
+   zeroing the <li> itself) is what actually replaces Bootstrap's box
+   instead of wrapping it. Also: DT's actual "current page" marker is
+   .page-item.active (there is no .paginate_button.current in this
+   Bootstrap-5 build), so that state was never being styled at all before
+   this and was showing Bootstrap's own default active-page blue. */
+.dataTables_wrapper .dataTables_paginate .paginate_button,
+.dataTables_wrapper .dataTables_paginate .page-item {
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 2px;
+}
+.dataTables_wrapper .dataTables_paginate .page-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 35px;
+  border: 0 !important;
+  border-radius: var(--radius-pill) !important;
+  padding: 6.5px 14px !important;
+  font-size: 14px;
+  color: var(--color-maple-blue) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transition: background-color var(--transition), color var(--transition);
+}
+/* Hover: a light tint, not a solid fill -- the same "light up slightly"
+   treatment as every other hover state on the page (nav-pills, dropdown
+   options, etc.), not the active tab's own solid-fill look. */
+.dataTables_wrapper .dataTables_paginate .page-item:not(.disabled):not(.active) .page-link:hover {
+  background: rgba(5, 152, 216, .1) !important;
+  color: var(--color-maple-blue) !important;
+}
+.dataTables_wrapper .dataTables_paginate .page-item.active .page-link {
+  background: var(--color-jets-blue) !important;
+  color: var(--color-white) !important;
+}
+.dataTables_wrapper .dataTables_paginate .page-item.disabled .page-link {
+  color: var(--color-dark-grey) !important;
+  cursor: not-allowed;
+}
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select {
+  height: var(--control-height);
+  border: .5px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  padding: 0 var(--control-pad-x);
+  font-size: var(--control-font-size);
+  font-weight: 300;
+}
+
+/* ---------------------------------------------------------------------------
+   10. SLIDERS (ionRangeSlider) -- year-range controls
+--------------------------------------------------------------------------- */
+.irs--shiny .irs-bar,
+.irs--shiny .irs-from,
+.irs--shiny .irs-to,
+.irs--shiny .irs-single {
+  background: var(--color-jets-blue);
+  border-color: var(--color-jets-blue);
+  font-family: var(--font-base);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+}
+.irs--shiny .irs-line { background: var(--color-light-grey); border-radius: var(--radius-pill); }
+.irs--shiny .irs-handle {
+  border: 2px solid var(--color-jets-blue);
+  background: var(--color-white);
+  box-shadow: none;
+}
+.irs--shiny .irs-min, .irs--shiny .irs-max,
+.irs--shiny .irs-grid-text {
+  font-family: var(--font-base);
+  font-size: 12px;
+  color: var(--color-dark-grey);
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   11. FOCUS -- the site suppresses default outlines and signals focus with
+   a jets-blue border. Keep a visible fallback for keyboard users.
+--------------------------------------------------------------------------- */
+:focus-visible { outline: 2px solid var(--color-jets-blue); outline-offset: 2px; }
+.form-control:focus-visible,
+.selectize-input.focus,
+.form-check-input:focus-visible,
+.btn:focus-visible { outline: 0; }
+.btn:focus-visible { box-shadow: 0 0 0 3px rgba(5, 152, 216, .45); }
+
+/* ---------------------------------------------------------------------------
+   12. CHART SURFACE -- plotly / ggplot output containers
+--------------------------------------------------------------------------- */
+.shiny-plot-output,
+.plotly,
+.js-plotly-plot,
+.html-widget {
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  font-family: var(--font-base);
+}
+.js-plotly-plot .plotly .modebar { font-family: var(--font-base); }
+.js-plotly-plot .plotly .modebar-btn path { fill: var(--color-dark-grey); }
+.js-plotly-plot .plotly .modebar-btn:hover path { fill: var(--color-jets-blue); }
+
+/* ---------------------------------------------------------------------------
+   13. RESPONSIVE -- the site's four breakpoints, verbatim
+--------------------------------------------------------------------------- */
+@media (max-width: 1600px) {
+  .container-fluid, .csls-container { width: min(var(--container), calc(100% - 96px)); }
+}
+
+@media (max-width: 1440px) {
+  h1, .h1 { font-size: clamp(36px, 4vw, 44px); }
+}
+
+@media (max-width: 1180px) {
+  .container-fluid, .csls-container { width: calc(100% - 64px); }
+  .well, .panel, .card, .bslib-card, .csls-card { padding: 32px; }
+  h2, .h2 { font-size: 30px; }
+}
+
+@media (max-width: 768px) {
+  .container-fluid, .csls-container { width: calc(100% - 32px); }
+  .well, .panel, .card, .bslib-card, .csls-card { padding: 24px; }
+  h1, .h1 { font-size: 32px; }
+  h2, .h2 { font-size: 26px; }
+  h3, .h3 { font-size: 20px; }
+  .nav-tabs > li > a, .nav-tabs .nav-link { padding: 12px 16px; font-size: 14px; }
+}
+
+/* ---------------------------------------------------------------------------
+   14. NOTIFICATIONS & CONNECTION STATUS -- showNotification() toasts (see
+   csls_notify() in app.R) and Shiny's own disconnected-overlay/reconnect-
+   prompt, which render through these same notification classes. Both were
+   previously unstyled (raw Bootstrap-era appearance).
+--------------------------------------------------------------------------- */
+#shiny-notification-panel { font-family: var(--font-base); }
+.shiny-notification {
+  border-radius: var(--radius-md);
+  border: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
+  font-size: 14px;
+  font-weight: 300;
+}
+/* closeButton=TRUE (Shiny's own default) already puts a real, clickable
+   close element in the DOM for every csls_notify() call -- it just fell
+   back to raw Bootstrap grey with nothing here to style it, which is why
+   it read as absent/easy to miss rather than an obvious "click to dismiss
+   early" control. Left plain on hover/click -- no colour-fill circle -- it
+   still dismisses the notification exactly as before, just without the
+   blue feedback bubble. */
+.shiny-notification-close {
+  font-size: 1.4em;
+  color: var(--color-dark-grey);
+}
+
+/* Shiny injects/removes this div itself on disconnect/reconnect -- it is
+   always empty (confirmed by reading shiny.js directly), so this file must
+   never pre-place it in the UI (it would show permanently from first
+   paint) and content can only be added via ::after. pointer-events: auto +
+   cursor: pointer + the click-to-reload listener in ui_helpers.js turn the
+   whole overlay into a retry action, since Shiny's own reconnect (see
+   session$allowReconnect(TRUE) in app.R) can't help once the R process
+   itself is actually gone -- a fresh page load always can. */
+#shiny-disconnected-overlay {
+  background: rgba(5, 152, 216, .30); /* --color-jets-blue, translucent -- signals "reload needed" without blacking out the app underneath */
+  opacity: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+#shiny-disconnected-overlay::after {
+  content: "Connection lost \2014 click to reload";
+  color: var(--color-white);
+  font-family: var(--font-base);
+  font-weight: 600;
+  font-size: 20px;
+  text-align: center;
+  max-width: 420px;
+  padding: 0 24px;
+}
