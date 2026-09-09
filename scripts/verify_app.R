@@ -33,21 +33,22 @@ expect_validation_error <- function(res, label) {
 
 # A single valid mfp_data row-shape, reused by every data-contract check
 # below as the known-good baseline that gets deliberately broken one way at
-# a time. No Geography column -- table 36-10-0208-01 covers Canada only
-# (see data_pipeline.R), so unlike the old labour productivity fixture this
-# replaces, there's no second series dimension to carry.
+# a time. Geography = "Ontario" -- matches app.R's DEFAULT_GEOGRAPHY, so
+# every existing numeric expectation elsewhere in this file (all seeded
+# against Ontario-valued fixture rows) keeps working unchanged now that
+# table 36-10-0211-01 carries a real province dimension (see data_pipeline.R).
 good_row <- function() {
   data.frame(
-    Year = 2021:2023, Variable = "Multifactor productivity",
-    Industry = "Business sector", IndustryLevel = "Aggregate", Value = c(100, 101, 102),
+    Year = 2021:2023, Geography = "Ontario", Variable = "Multifactor productivity",
+    Industry = "Business sector industries", IndustryLevel = "Aggregate", Value = c(100, 101, 102),
     UOM = "Index, 2017=100", stringsAsFactors = FALSE
   )
 }
 
 fixture_path <- tempfile(fileext = ".RData")
 
-# Business sector (Aggregate): 100/101/102 over 2021-2023 -- the default
-# variable/industry combination.
+# Business sector industries (Aggregate): 100/101/102 over 2021-2023 -- the
+# default geography/variable/industry combination.
 # Manufacturing (2-digit): 95/96/97 over 2021-2023 -- a second, comparable
 # industry so "compare multiple industries" has a second full-history series.
 # Retail trade (2-digit): 60/62/64 over 2021-2023 -- a third same-level
@@ -55,9 +56,12 @@ fixture_path <- tempfile(fileext = ".RData")
 # to add.
 # Construction (2-digit): 50/52 over 2022-2023 only -- exercises "series
 # starts later than the rest of the panel" for the rebase/ranking edge cases.
-series_block <- function(industry, level, years, values) {
+# geography defaults to "Ontario" (matching DEFAULT_GEOGRAPHY) so every
+# existing call site below -- none of which pass a geography of their own --
+# keeps building the same fixture data it always has.
+series_block <- function(industry, level, years, values, geography = "Ontario") {
   data.frame(
-    Year = years, Variable = "Multifactor productivity",
+    Year = years, Geography = geography, Variable = "Multifactor productivity",
     Industry = industry, IndustryLevel = level, Value = values,
     UOM = "Index, 2017=100", stringsAsFactors = FALSE
   )
@@ -66,13 +70,19 @@ series_block <- function(industry, level, years, values) {
 make_fixture <- function(sector_value = 100.0, manufacturing_value = 95.0,
                           retail_value = 60.0, extra_year = FALSE) {
   mfp_data <- rbind(
-    series_block("Business sector", "Aggregate", 2021:2023, sector_value + 0:2),
+    series_block("Business sector industries", "Aggregate", 2021:2023, sector_value + 0:2),
     series_block("Manufacturing", "2-digit", 2021:2023, manufacturing_value + 0:2),
     series_block("Retail trade", "2-digit", 2021:2023, retail_value + c(0, 2, 4)),
-    series_block("Construction", "2-digit", 2022:2023, c(50.0, 52.0))
+    series_block("Construction", "2-digit", 2022:2023, c(50.0, 52.0)),
+    # A second province, deliberately different values throughout, purely so
+    # the Geography-filter check below (search "geography filter") has real
+    # fixture data to prove switching input$geography actually changes what
+    # a tab shows/exports, not just that the picker exists.
+    series_block("Business sector industries", "Aggregate", 2021:2023, c(200, 202, 204), geography = "Quebec"),
+    series_block("Manufacturing", "2-digit", 2021:2023, c(150, 153, 156), geography = "Quebec")
   )
   if (extra_year) {
-    mfp_data <- rbind(mfp_data, series_block("Business sector", "Aggregate", 2024L, sector_value + 3))
+    mfp_data <- rbind(mfp_data, series_block("Business sector industries", "Aggregate", 2024L, sector_value + 3))
   }
   save(mfp_data, file = fixture_path)
 }
@@ -112,6 +122,7 @@ shiny::testServer(env$server, {
   # exercises server() alone) -- seed the same values a real page load
   # would have sent.
   session$setInputs(
+    `trend-geography` = "Ontario",
     `trend-variable` = "Multifactor productivity", `trend-industry` = env$DEFAULT_INDUSTRY,
     `trend-year_range` = c(2021, 2023)
   )
@@ -138,26 +149,35 @@ shiny::testServer(env$server, {
   # active_pairs() seeds itself from default_pair_row() unconditionally (see
   # tab_module_server()) -- unlike Trends' bare inputs above, this doesn't
   # depend on ui() ever having run.
-  session$setInputs(`bar-variable` = "Multifactor productivity", `bar-year_range` = c(2021, 2023))
+  session$setInputs(
+    `bar-geography` = "Ontario",
+    `bar-variable` = "Multifactor productivity", `bar-year_range` = c(2021, 2023)
+  )
   session$flushReact()
   stopifnot(!is.null(output[["bar-chart"]]))
   default_csv <- read.csv(output[["bar-download_csv"]])
   stopifnot(setequal(unique(default_csv$Industry), env$DEFAULT_INDUSTRY))
-  cat("Compare renders + exports only the default series (Business sector) OK\n")
+  cat("Compare renders + exports only the default series (Business sector industries) OK\n")
 
   cat("== Industry detail is cumulative, not exact-tier ==\n")
   # A pure check of industry_levels_upto()/series_choices() against the
   # shared raw_data() -- doesn't need any module input (only Rankings has an
   # industry_level toggle at all; it's exercised with its own namespaced
-  # input further down).
+  # input further down). Filtered to Ontario first -- raw_data() now spans
+  # 2 provinces (see make_fixture()), and Quebec's fixture rows only cover
+  # Business sector industries/Manufacturing, not Retail trade/Construction,
+  # so an unfiltered industry_levels_upto() check would still pass here but
+  # would no longer be testing the same thing this check is meant to (the
+  # Aggregate/2-digit cumulative relationship for one consistent province).
+  ontario_raw <- raw_data()[raw_data()$Geography == "Ontario", ]
   aggregate_choices2 <- env$series_choices(
-    raw_data()[raw_data()$IndustryLevel %in% env$industry_levels_upto("Aggregate"), ], "Industry"
+    ontario_raw[ontario_raw$IndustryLevel %in% env$industry_levels_upto("Aggregate"), ], "Industry"
   )
-  stopifnot(identical(aggregate_choices2, "Business sector"))
+  stopifnot(identical(aggregate_choices2, "Business sector industries"))
   two_digit_choices <- env$series_choices(
-    raw_data()[raw_data()$IndustryLevel %in% env$industry_levels_upto("2-digit"), ], "Industry"
+    ontario_raw[ontario_raw$IndustryLevel %in% env$industry_levels_upto("2-digit"), ], "Industry"
   )
-  stopifnot(all(c("Business sector", "Manufacturing", "Retail trade", "Construction") %in% two_digit_choices))
+  stopifnot(all(c("Business sector industries", "Manufacturing", "Retail trade", "Construction") %in% two_digit_choices))
   cat("2-digit adds to Aggregate OK\n")
 
   cat("== Adding a duplicate series is a no-op; remove_pair/clear_pairs implement removal ==\n")
@@ -270,7 +290,7 @@ shiny::testServer(env$server, {
 
   cat("== Growth Ranking CAGR ==\n")
   session$setInputs(
-    `ranking-variable` = "Multifactor productivity",
+    `ranking-geography` = "Ontario", `ranking-variable` = "Multifactor productivity",
     `ranking-industry_level` = "2-digit", `ranking-year_range` = c(2021, 2023)
   )
   session$flushReact()
@@ -306,9 +326,39 @@ shiny::testServer(env$server, {
   ranked2 <- read.csv(output[["ranking-download_csv"]], check.names = FALSE)
   stopifnot(!("Construction" %in% ranked2$Industry))
   cat("Construction (missing the start-year value) is excluded from the ranking OK\n")
+
+  cat("== Geography filter: switching province re-scopes the data, not just the picker ==\n")
+  # Manufacturing's Ontario values (95/96/97, set by make_fixture()'s
+  # defaults) and Quebec values (150/153/156, see make_fixture()'s own
+  # comment) are deliberately different, so this proves input$geography is
+  # actually wired into scoped_raw()'s filter() -- not merely present and
+  # inert -- for both the Compare (bar) and Trends tabs.
+  clear_bar_pairs()
+  add_bar_pair("Manufacturing")
+  session$setInputs(`bar-geography` = "Ontario")
+  session$flushReact()
+  bar_on_ontario <- read.csv(output[["bar-download_csv"]])
+  stopifnot(setequal(unique(bar_on_ontario$Geography), "Ontario"))
+  stopifnot(close_enough(bar_on_ontario$Value[bar_on_ontario$Year == 2021], 95))
+
+  session$setInputs(`bar-geography` = "Quebec")
+  session$flushReact()
+  bar_on_quebec <- read.csv(output[["bar-download_csv"]])
+  stopifnot(setequal(unique(bar_on_quebec$Geography), "Quebec"))
+  stopifnot(close_enough(bar_on_quebec$Value[bar_on_quebec$Year == 2021], 150))
+
+  session$setInputs(`trend-geography` = "Quebec", `trend-industry` = "Manufacturing")
+  session$flushReact()
+  trend_on_quebec <- read.csv(output[["trend-download_csv"]])
+  stopifnot(close_enough(trend_on_quebec$Value[trend_on_quebec$Year == 2021], 150))
+  # Restore both tabs to Ontario -- nothing after this point should have to
+  # know this check ever ran.
+  session$setInputs(`bar-geography` = "Ontario", `trend-geography` = "Ontario", `trend-industry` = env$DEFAULT_INDUSTRY)
+  session$flushReact()
+  cat("switching Geography changes the underlying data on both Compare and Trends OK\n")
 })
 
-# The RAW_DATA_READER file-watcher itself (does a changed mfp_data.RData
+# The RAW_DATA_READER file-watcher itself (does a changed mfp_data_provincial.RData
 # actually flow through to a running app without a restart?) is NOT
 # exercised above. A bare-bones repro -- a single testServer session that
 # does nothing but read raw_data(), rewrite the fixture, then poll
@@ -321,7 +371,7 @@ shiny::testServer(env$server, {
 # tied to any one session, not a bug in app.R, but it means the bare-bones
 # repro only demonstrates the mechanism in isolation -- it is not proof
 # the behavior holds in a real, fully-loaded running app. Confirm that by
-# hand: launch the app, edit mfp_data.RData while it's running, and watch
+# hand: launch the app, edit mfp_data_provincial.RData while it's running, and watch
 # the charts update within the poll interval with no restart.
 
 unlink(fixture_path)
@@ -337,8 +387,8 @@ mfp_data <- data.frame(
   # fixture also serves the Rankings check below: compute_cagr() returns NA
   # for a StartValue of exactly 0 (see compute_cagr()'s own comment), so a
   # 2021-2023 CAGR window has nothing to show either.
-  Year = 2021:2023, Variable = "Multifactor productivity",
-  Industry = "Business sector", IndustryLevel = "Aggregate", Value = c(0, 1, 2),
+  Year = 2021:2023, Geography = "Ontario", Variable = "Multifactor productivity",
+  Industry = "Business sector industries", IndustryLevel = "Aggregate", Value = c(0, 1, 2),
   UOM = "Index, 2017=100", stringsAsFactors = FALSE
 )
 save(mfp_data, file = ux_fixture_path)
@@ -352,7 +402,8 @@ sys.source("app.R", envir = ux_env)
 # has 3 rows), so this exercises the renderPlotly-level gate specifically.
 shiny::testServer(ux_env$server, {
   session$setInputs(
-    `trend-variable` = "Multifactor productivity", `trend-industry` = "Business sector",
+    `trend-geography` = "Ontario",
+    `trend-variable` = "Multifactor productivity", `trend-industry` = "Business sector industries",
     `trend-year_range` = c(2021, 2023),
     `trend-view_mode` = "level", `trend-rebase_toggle` = TRUE, `trend-base_year` = 1999
   )
@@ -366,7 +417,7 @@ shiny::testServer(ux_env$server, {
 # validate() doesn't catch this either.
 shiny::testServer(ux_env$server, {
   session$setInputs(
-    `ranking-variable` = "Multifactor productivity",
+    `ranking-geography` = "Ontario", `ranking-variable` = "Multifactor productivity",
     `ranking-industry_level` = "Aggregate", `ranking-year_range` = c(2021, 2023)
   )
   session$flushReact()
@@ -378,6 +429,7 @@ shiny::testServer(ux_env$server, {
 # default_pair_row()) -- no Add-series click needed to reach this case.
 shiny::testServer(ux_env$server, {
   session$setInputs(
+    `bar-geography` = "Ontario",
     `bar-variable` = "Multifactor productivity", `bar-year_range` = c(2021, 2023),
     `bar-view_mode` = "level", `bar-rebase_toggle` = TRUE, `bar-base_year` = 1999
   )
@@ -392,7 +444,7 @@ unlink(ux_fixture_path)
 # clear thrown error instead of a silently wrong chart -- these checks
 # exercise that mechanism directly, plus the specific failure mode that
 # motivated it (see the first check below).
-cat("== Data contract: an empty (0-row) mfp_data.RData degrades to Application unavailable, not a broken page ==\n")
+cat("== Data contract: an empty (0-row) mfp_data_provincial.RData degrades to Application unavailable, not a broken page ==\n")
 empty_fixture_path <- tempfile(fileext = ".RData")
 mfp_data <- good_row()[0, ]
 save(mfp_data, file = empty_fixture_path)
@@ -401,7 +453,7 @@ contract_env <- new.env()
 sys.source("app.R", envir = contract_env)
 page_html <- as.character(contract_env$ui(list()))
 # Before validate_data_contract() existed, an empty-but-successfully-loaded
-# mfp_data.RData sailed past every is.null() check in ui() and reached
+# mfp_data_provincial.RData sailed past every is.null() check in ui() and reached
 # sliderInput(min = min(integer(0)), max = max(integer(0)), ...) -- Inf/-Inf
 # bounds that don't error (confirmed empirically) but silently produce a
 # garbled date-range slider instead of a clear error state. Confirming the
@@ -434,6 +486,25 @@ expect_contract_error(na_key, contract_env$MFP_DATA_CONTRACT, "column 'Industry'
 dupe_key <- rbind(good_row(), good_row()[1, ])
 expect_contract_error(dupe_key, contract_env$MFP_DATA_CONTRACT, "duplicate row(s)", "duplicate natural key")
 
+na_geography <- good_row()
+na_geography$Geography[2] <- NA
+expect_contract_error(na_geography, contract_env$MFP_DATA_CONTRACT, "column 'Geography' has 1 NA value", "NA in the Geography key column")
+
+# Regression check for the contract's own unique_key shape: table
+# 36-10-0211-01 means the same (Year, Variable, Industry) can legitimately
+# repeat once per province now, so unique_key had to grow from
+# c("Year", "Variable", "Industry") to include "Geography" too (see
+# data_contract.R) -- 2 rows identical on Year/Variable/Industry but
+# differing only in Geography must NOT be flagged as duplicates, the mirror
+# image of the dupe_key check above (which duplicates a row exactly,
+# Geography included).
+distinct_geography <- good_row()
+quebec_row <- distinct_geography[1, ]
+quebec_row$Geography <- "Quebec"
+distinct_geography <- rbind(distinct_geography, quebec_row)
+contract_env$validate_data_contract(distinct_geography, contract_env$MFP_DATA_CONTRACT, "test") # should not throw
+cat("2 rows sharing Year/Variable/Industry but differing in Geography are not flagged as duplicates OK\n")
+
 bad_enum <- good_row()
 bad_enum$IndustryLevel[1] <- "3-digit"
 expect_contract_error(bad_enum, contract_env$MFP_DATA_CONTRACT, "outside its expected set", "value outside a declared enum")
@@ -443,11 +514,11 @@ extra_col_ok$FutureColumn <- "whatever"
 contract_env$validate_data_contract(extra_col_ok, contract_env$MFP_DATA_CONTRACT, "test") # should not throw
 cat("forward-compatible: an unrecognized extra column is tolerated, not rejected OK\n")
 
-raw_missing_col <- data.frame(REF_DATE = 2021, GEO = "Canada", VALUE = 1, UOM = "x", stringsAsFactors = FALSE)
+raw_missing_col <- data.frame(REF_DATE = 2021, GEO = "Ontario", VALUE = 1, UOM = "x", stringsAsFactors = FALSE)
 expect_contract_error(
   raw_missing_col, contract_env$RAW_STATCAN_CONTRACT,
   paste0(
-    "missing column(s): Multifactor productivity and related variables, ",
+    "missing column(s): Labour productivity measures and related measures, ",
     "North American Industry Classification System (NAICS), ",
     "Hierarchy for North American Industry Classification System (NAICS)"
   ),
