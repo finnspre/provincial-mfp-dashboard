@@ -124,6 +124,92 @@ GEOGRAPHY_ORDER <- c(
 )
 DEFAULT_GEOGRAPHY <- "Ontario"
 
+# Simplified province/territory boundaries for the New Trends tab's Canada
+# choropleth (see newtrends_tab_server()) -- click_that_hood's public-domain
+# Canada dataset (github.com/codeforgermany/click_that_hood), reduced from
+# ~17.7k coordinate points/705KB down to ~3.9k points/68KB: per-feature
+# Douglas-Peucker simplification, plus dropping all but the largest islands
+# by true (latitude-corrected) surface area -- a choropleth fill doesn't need
+# survey-precision coastlines, and every extra vertex here is bytes sent to
+# every visitor (this geojson is embedded directly in the rendered Plotly
+# figure, not fetched separately). 13 features (10 provinces + 3
+# territories), each properties$name an exact string match for a
+# GEOGRAPHY_ORDER value where the underlying data actually has that
+# geography -- table 36-10-0211-01 has no territory rows (see
+# GEOGRAPHY_ORDER's own comment), so the 3 territories only ever render in
+# GROWTH_MAP_NO_DATA_COLOR below, never a real growth-rate colour; kept in
+# the shipped file anyway so the map still reads as the whole country
+# rather than a Canada-shaped hole where they'd otherwise be.
+# simplifyVector = FALSE keeps every JSON array (including each [lon, lat]
+# pair) as a plain list rather than collapsing it into a matrix/vector -- the
+# nested-list-of-lists shape Plotly's own `geojson` trace argument expects,
+# and what lets this round-trip back out through the same jsonlite machinery
+# that serializes the rest of the figure to JSON for the browser.
+CANADA_GEOJSON_FILE <- "canada_provinces.geojson"
+CANADA_GEOJSON <- jsonlite::fromJSON(file.path("www", CANADA_GEOJSON_FILE), simplifyVector = FALSE)
+
+# 2-stop gradient for the New Trends tab's choropleth -- a deliberate,
+# explicit design choice (2 of this app's own brand colours, not a computed
+# single-hue ramp): each province/territory's fill blends continuously
+# between these by its own growth rate, a light tint of Jets Blue at the
+# lowest growth rate shown and full-strength Maple Leaf Blue at the highest.
+# The low end is deliberately NOT the plain BRAND_JETS_BLUE hex (a mid-
+# lightness blue, OKLCH L 0.645) -- against Maple Blue's own L of 0.324 that
+# left too narrow a lightness range for real growth-rate spreads (usually a
+# couple of points wide, not the full scale) to read as an "obvious"
+# gradient, per explicit feedback. Lightened toward white instead (60% of
+# the way from Jets Blue to white, i.e. still clearly the same blue hue --
+# 2.5 degree hue shift, negligible -- just paler): L 0.771 widens the
+# gradient's usable lightness range to 0.447 (vs 0.321 before), while still
+# clearing the same ~2:1 contrast-vs-white floor and ~0.10 OKLCH chroma
+# floor (reads as blue, not grey) this file's other computed colours are
+# held to (ported the dataviz skill's own OKLab/OKLCH + WCAG-contrast
+# formulas to Python to check it -- see CATEGORICAL_PALETTE's own header
+# comment for the same general method, applied there to a different check).
+# Re-run the same check (contrast(hex, "#FFFFFF"), oklch(hex)) before ever
+# changing this.
+GROWTH_MAP_LOW_COLOR <- "#69C1E8"
+# Plotly colorscale shape: a plain list of [fraction, colour] stops -- 2 is
+# enough for a straight 2-colour blend, no in-between stops needed. z is the
+# raw growth rate itself (not a percentile rank) with zauto left on, so 0/1
+# here really do map to "this selection's own lowest/highest growth rate",
+# not a fixed domain -- and GROWTH_MAP_LOW_COLOR/BRAND_MAPLE_BLUE (the same
+# 2 endpoints, not re-typed) is also what interpolate_hex() blends between
+# for the legend table's own per-province swatch (see
+# newtrends_tab_server()'s ranked_data()), so a row's swatch always matches
+# the shade the map itself fills that province with.
+GROWTH_MAP_COLORSCALE <- list(list(0, GROWTH_MAP_LOW_COLOR), list(1, BRAND_MAPLE_BLUE))
+# "No data" fill for a geojson feature with nothing to colour (the 3
+# territories, or a province dropped for missing start/end-year data -- see
+# newtrends_tab_server()'s own dropped-geography handling) -- GRIDLINE
+# (Light Grey), the same already-recessive neutral this app's chart
+# gridlines use, reused here rather than inventing a new grey so "no data"
+# reads as deliberately muted/background rather than a plausible-looking
+# low-growth colour. Distinct from both gradient endpoints above, so
+# there's no confusion between "no data" and "lowest growth rate" either.
+GROWTH_MAP_NO_DATA_COLOR <- GRIDLINE
+
+# Manual view window (lon/lat range) for the choropleth's `geo` layout --
+# deliberately NOT geo$fitbounds="locations": confirmed empirically
+# (rendered the map standalone at a known pixel size and measured how much
+# of the frame the shape actually filled) that fitbounds computes a far
+# more zoomed-out scale than the shown geometry needs once the grey "no
+# data" trace's territory locations are included in it -- Ellesmere Island
+# alone reaches ~83N, and fitbounds' computed bounding box apparently sizes
+# for that extreme regardless of how little of the frame it should actually
+# need, leaving the whole map at roughly a third of the available area with
+# empty space on every side. These bounds instead: comfortably cover all 10
+# provinces (their own true bbox is lon -138.9..-52.6, lat 41.9..62.6,
+# confirmed against the geojson directly) plus a good share of the 3
+# territories for context (Yukon, NWT, and most of Nunavut including Baffin
+# Island), while cropping off only the most extreme high-Arctic islands
+# near Ellesmere/Axel Heiberg -- which cost the most zoomed-out room for the
+# least recognizable payoff. Re-measure (don't just eyeball) before ever
+# changing these, the same way GROWTH_MAP_BAND_COLORS above was computed
+# rather than guessed.
+GROWTH_MAP_LON_RANGE <- c(-142, -50)
+GROWTH_MAP_LAT_RANGE <- c(41, 75)
+
 # This table's 14 variables are an exact subset of the old Canada-only
 # table's 26 (confirmed programmatically against a live pull -- same
 # strings, same relative order), so this list is just that old list with the
@@ -205,6 +291,20 @@ blend_toward_grey <- function(hex, amount = GROWTH_TRUNCATED_DESATURATION) {
   channels <- grDevices::col2rgb(hex)[, 1]
   grey <- mean(channels)
   blended <- channels * (1 - amount) + grey * amount
+  grDevices::rgb(blended[1], blended[2], blended[3], maxColorValue = 255)
+}
+
+# Linearly interpolates between 2 hex colours in sRGB space at fraction `t`
+# (0 = `from`, 1 = `to`) -- plain per-channel RGB blending, the same method
+# Plotly itself uses between 2 colorscale stops, so this reproduces exactly
+# what colour the map fills a given z-value with. Used by the New Trends
+# tab's legend table (see ranked_data()) to give each row's swatch the same
+# shade GROWTH_MAP_COLORSCALE paints that province/territory on the map,
+# rather than a separately-eyeballed approximation.
+interpolate_hex <- function(from, to, t) {
+  from_rgb <- grDevices::col2rgb(from)[, 1]
+  to_rgb <- grDevices::col2rgb(to)[, 1]
+  blended <- from_rgb + t * (to_rgb - from_rgb)
   grDevices::rgb(blended[1], blended[2], blended[3], maxColorValue = 255)
 }
 
@@ -1375,6 +1475,372 @@ trend_tab_server <- function(id, raw_data, variable_uom_lookup) {
       content = function(file) {
         df <- build_export_df(filtered_data(), input$rebase_toggle, input$base_year)
         write.csv(df, file, row.names = FALSE)
+      }
+    )
+  })
+}
+
+# The New Trends tab: like Trends, a Variable + Industry + date-range picker
+# -- but scoped across every Geography at once instead of rendering a single
+# line for one chosen province. For the selected Variable/Industry/date
+# range, computes each province's (and, where the underlying data actually
+# has one, territory's) compound annual growth rate, then shows it as a
+# Canada choropleth (coloured by growth rate itself, see
+# GROWTH_MAP_COLORSCALE) next to a plain ranked list standing in for a
+# legend -- rank, name, growth rate, one row per geography, sorted highest
+# growth first (see output$legend_table). No Geography picker (unlike every
+# other tab) -- Geography is exactly what this tab varies across, not a
+# single scope to narrow to first -- and no "More options" disclosure:
+# unlike Trends, this tab has only 4 sidebar controls total, short enough to
+# sit directly in the sidebar the same way the Data tab's own (similarly
+# short) sidebar does.
+newtrends_tab_ui <- function(id, init_df, variable_choices, industry_tree) {
+  ns <- NS(id)
+
+  card(
+    # card-sidebar -- see the matching comment on the Trends tab's card().
+    class = "card-sidebar",
+    layout_sidebar(
+      sidebar = sidebar(
+        id = ns("sidebar"),
+        # Same treeSelectInput widget as every other tab's Variable picker
+        # (see www/tree_select.js and the matching comment on the Trends
+        # tab's sidebar) -- click/tab in blanks the box for a fresh search
+        # or scroll, picking an option (or not) is what shows/restores the
+        # display text.
+        treeSelectInput(
+          ns("variable"), "Variable",
+          tree_data = flat_tree_nodes(variable_choices), selected = DEFAULT_VARIABLE,
+          placeholder = "Search variables..."
+        ),
+        # Identical helper the Trends tab uses for its own definition blurb
+        # + "More" link through to the Definitions tab -- see
+        # variable_definition_ui()'s own comment.
+        uiOutput(ns("variable_definition")),
+        treeSelectInput(
+          ns("industry"), "Industry",
+          tree_data = industry_tree, selected = DEFAULT_INDUSTRY,
+          placeholder = "Search industries..."
+        ),
+        sliderInput(
+          ns("year_range"), "Date range",
+          min = min(init_df$Year), max = max(init_df$Year),
+          value = c(min(init_df$Year), max(init_df$Year)),
+          step = 1, sep = ""
+        ),
+        download_menu_ui(ns, chart_id = ns("map_chart"))
+      ),
+      # Map + ranked legend table side by side, sharing the main content
+      # area a single plotlyOutput(height="100%") occupies on every other
+      # tab. as_fill_carrier() (not a plain tags$div()) is what makes this
+      # row itself stretch to fill that area AND passes fill-sizing on down
+      # to the map inside it -- a plain wrapper div carries neither of
+      # bslib's html-fill-item/html-fill-container classes, which is what
+      # normally happens invisibly for a *direct* plotlyOutput child of
+      # layout_sidebar(); nesting one inside a bare div would otherwise
+      # silently break that chain and leave the map at Plotly's own small
+      # default size instead of filling the card. flex-direction: row (see
+      # the CSS in ui(), the .new-trends-chart-row rule) is what actually
+      # splits the map and the legend panel side by side -- bslib's own
+      # .html-fill-container CSS only supplies display:flex, not a
+      # direction, so without that rule this would stack them vertically
+      # instead. The legend panel itself is a fixed width (that same CSS),
+      # not an even split -- a ranked list of provinces only ever needs
+      # enough width for its longest name + percentage + swatch, and every
+      # bit of width beyond that is better spent on the map. No heading
+      # above the table (there was one; dropped at explicit request so this
+      # reads as this tab's legend -- the map's own colourbar was turned
+      # off in favour of it -- not a 2nd, separate table alongside the map).
+      as_fill_carrier(
+        tags$div(
+          class = "new-trends-chart-row",
+          plotlyOutput(ns("map_chart"), height = "100%"),
+          tags$div(class = "new-trends-legend-panel", uiOutput(ns("legend_table")))
+        ),
+        gap = "24px"
+      ),
+      # See source_and_asof_ui()'s own comment for why this is one wrapper
+      # div rather than two separate top-level children here.
+      source_and_asof_ui(ns)
+    )
+  )
+}
+
+newtrends_tab_server <- function(id, raw_data) {
+  moduleServer(id, function(input, output, session) {
+
+    # Keeps Variable/Industry/time-frame in sync with what's in the data,
+    # preserving the user's current picks where still valid -- see the
+    # matching comment on the Trends tab's own sync observe() for why
+    # ignoreInit = TRUE and why req() (not a bare assignment) guards
+    # raw_data(). No Geography sync here -- this tab has no Geography input
+    # (see newtrends_tab_ui()'s own comment).
+    observe({
+      df <- req(raw_data())
+
+      variable_choices <- series_choices(df, "Variable", VARIABLE_ORDER)
+      new_variable <- if (is.null(input$variable) || !(input$variable %in% variable_choices)) {
+        DEFAULT_VARIABLE
+      } else {
+        input$variable
+      }
+      updateTreeSelectInput(session, "variable", tree_data = flat_tree_nodes(variable_choices), selected = new_variable)
+
+      new_industry <- if (is.null(input$industry) || !(input$industry %in% unique(df$Industry))) {
+        DEFAULT_INDUSTRY
+      } else {
+        input$industry
+      }
+      updateTreeSelectInput(session, "industry", tree_data = industry_tree_nodes(df), selected = new_industry)
+
+      year_min <- min(df$Year)
+      year_max <- max(df$Year)
+      current_range <- input$year_range
+      range_value <- if (is.null(current_range)) {
+        c(year_min, year_max)
+      } else {
+        c(max(current_range[1], year_min), min(current_range[2], year_max))
+      }
+      updateSliderInput(session, "year_range", min = year_min, max = year_max, value = range_value)
+    }) |> bindEvent(raw_data(), once = FALSE, ignoreInit = TRUE)
+
+    # Every Geography's row for the selected Variable/Industry -- unlike
+    # every other tab's scoped_raw(), deliberately NOT filtered to a single
+    # Geography (see newtrends_tab_ui()'s own comment: Geography is what
+    # this tab varies across).
+    scoped_raw <- reactive({
+      validate(need(!is.null(raw_data()), "Data is temporarily unavailable -- please try again in a moment."))
+      req(input$variable, input$industry)
+      raw_data() %>% filter(Variable == input$variable, Industry == input$industry)
+    })
+
+    # Compound annual growth rate from the start to the end of the selected
+    # time frame, one row per Geography -- same method the Rankings tab uses
+    # for its own per-Industry CAGR (see compute_cagr()), just grouped by
+    # Geography here instead.
+    growth_data <- reactive({
+      df <- scoped_raw()
+      validate(need(nrow(df) > 0, "No data for this variable/industry combination."))
+      rng <- req(input$year_range)
+      start_year <- rng[1]
+      end_year <- rng[2]
+      validate(need(end_year > start_year, "Select a time frame spanning at least two years to compute growth rates."))
+
+      start_df <- df %>% filter(Year == start_year) %>% select(Geography, StartValue = Value)
+      end_df <- df %>% filter(Year == end_year) %>% select(Geography, EndValue = Value)
+      joined <- inner_join(start_df, end_df, by = "Geography")
+      joined$CAGR <- compute_cagr(joined$StartValue, joined$EndValue, end_year - start_year)
+      joined
+    })
+
+    # Same "tell the reader what silently dropped out, and why" pattern as
+    # the Rankings tab's own ranking_dropped_industries() -- a custom date
+    # range can land on years some provinces lack data for (inner_join()
+    # above drops those), or leave a province with rows at both years but
+    # still an undefined CAGR (e.g. a start value of exactly 0).
+    growth_dropped_geographies <- reactive({
+      gd <- tryCatch(growth_data(), error = function(e) NULL)
+      if (is.null(gd)) return(character(0))
+      all_geographies <- unique(scoped_raw()$Geography)
+      shown <- gd$Geography[!is.na(gd$CAGR)]
+      setdiff(all_geographies, shown)
+    })
+
+    observeEvent(growth_dropped_geographies(), {
+      dropped <- growth_dropped_geographies()
+      if (length(dropped) > 0) {
+        csls_notify(
+          paste0(
+            "Missing start/end-year data for: ", paste(dropped, collapse = ", "),
+            " -- excluded from the growth rate map."
+          ),
+          type = "warning"
+        )
+      }
+    })
+
+    # Rank is what the legend table (and the map's own hover) orders by --
+    # computed once here, rather than inline in 2 places, so output$
+    # legend_table and the CSV export can't end up with 2 separately-ranked
+    # copies. #1 = highest growth rate, matching a leaderboard's usual
+    # convention (and this tab's own CSV export, which already sorted
+    # desc(CAGR) before Rank existed). Ties (2 geographies with the exact
+    # same CAGR) get the same rank number, ranks after them skip ahead
+    # (ties.method = "min", i.e. "1, 2, 2, 4" not "1, 2, 2, 3") -- a tied
+    # #2 with no #3 at all reads as "these 2 are equal", which skipping to
+    # the next real rank preserves; averaging to "2.5" would not (a rank
+    # column should stay whole numbers), and "1, 2, 2, 3" would silently
+    # imply a real 3rd-place finisher was edged out.
+    ranked_data <- reactive({
+      gd <- growth_data() %>% filter(!is.na(CAGR)) %>% arrange(desc(CAGR))
+      gd$Rank <- rank(desc(gd$CAGR), ties.method = "min")
+      gd$Geography <- factor(gd$Geography, levels = gd$Geography)
+      # Each row's own position along GROWTH_MAP_COLORSCALE (0 = lowest
+      # growth rate shown, 1 = highest) -- same min-max scaling zauto itself
+      # applies to the map's z values, computed here explicitly so
+      # interpolate_hex() can reproduce that exact shade for the legend
+      # table's swatch. A degenerate range (every shown geography growing
+      # at the *exact* same rate -- diff() == 0) has no well-defined
+      # position to solve for; 0.5 (the gradient's midpoint) is as
+      # defensible a stand-in as any single value, and avoids a 0/0 divide.
+      cagr_range <- diff(range(gd$CAGR))
+      gd$SwatchT <- if (isTRUE(cagr_range == 0)) rep(0.5, nrow(gd)) else (gd$CAGR - min(gd$CAGR)) / cagr_range
+      gd$SwatchColor <- vapply(gd$SwatchT, function(t) interpolate_hex(GROWTH_MAP_LOW_COLOR, BRAND_MAPLE_BLUE, t), character(1))
+      gd
+    })
+
+    output$map_chart <- renderPlotly({
+      pd <- ranked_data()
+      validate(need(
+        nrow(pd) > 0,
+        "No provinces or territories have data at both the start and end of the selected time frame -- pick a different range."
+      ))
+
+      # Grey "no data" base layer, every geojson feature (all 10 provinces +
+      # 3 territories) -- drawn first so the coloured trace below can sit on
+      # top of it for the provinces that actually have data, while the 3
+      # territories (never in this table -- see GEOGRAPHY_ORDER's own
+      # comment) are left showing through in GROWTH_MAP_NO_DATA_COLOR. A
+      # single flat colour, not a real z-mapped trace -- showscale = FALSE
+      # keeps it out of the (already-removed, see the legend table instead)
+      # colourbar entirely, since it isn't data.
+      all_names <- vapply(CANADA_GEOJSON$features, function(f) f$properties$name, character(1))
+      plot_ly() %>%
+        add_trace(
+          type = "choropleth", geojson = CANADA_GEOJSON, featureidkey = "properties.name",
+          locations = all_names, z = rep(0, length(all_names)),
+          colorscale = list(list(0, GROWTH_MAP_NO_DATA_COLOR), list(1, GROWTH_MAP_NO_DATA_COLOR)),
+          showscale = FALSE, marker = list(line = list(color = CHART_SURFACE, width = 0.75)),
+          hovertemplate = "<b>%{location}</b><br>No data<extra></extra>",
+          geo = "geo"
+        ) %>%
+        add_trace(
+          data = pd, type = "choropleth", geojson = CANADA_GEOJSON, featureidkey = "properties.name",
+          locations = ~as.character(Geography), z = ~(CAGR * 100), customdata = ~Rank,
+          # zauto (Plotly's own default -- left on, no zmin/zmax here) scales
+          # the gradient to *this selection's* own lowest/highest growth
+          # rate, matching GROWTH_MAP_COLORSCALE's own comment: Jets Blue is
+          # always whichever province/territory grew the least, Maple Blue
+          # whichever grew the most, not 2 fixed values on an absolute scale.
+          colorscale = GROWTH_MAP_COLORSCALE,
+          # showscale = FALSE -- no Plotly colourbar; output$legend_table is
+          # this tab's legend now (a plain ranked list, per what was asked
+          # for), not a gradient bar.
+          showscale = FALSE,
+          marker = list(line = list(color = CHART_SURFACE, width = 0.75)),
+          hovertemplate = paste0(
+            "<b>%{location}</b><br>Growth rate: %{z:.2f}%<br>Rank: #%{customdata}<extra></extra>"
+          ),
+          geo = "geo"
+        ) %>%
+        layout(
+          # Reuses display_chart_title() exactly as the Trends tab does
+          # (Variable + year range), with Industry as the subtitle in place
+          # of Trends' own "Industry — Geography" -- there's no single
+          # Geography to name here, Geography is what varies across the map
+          # itself.
+          title = list(text = paste0(
+            display_chart_title(input$variable, input$year_range),
+            "<br><sup style='color:", INK_MUTED, "'>", input$industry, "</sup>"
+          )),
+          geo = list(
+            # Hides Plotly's own base map entirely (land/ocean/countries/
+            # frame/coastlines) -- the only thing left to draw is whatever
+            # this trace's own geojson/locations put on screen, which is how
+            # this shows *only* Canada rather than the rest of North America
+            # around it (see this tab's own header comment).
+            showland = FALSE, showocean = FALSE, showcountries = FALSE,
+            showframe = FALSE, showcoastlines = FALSE, showlakes = FALSE,
+            bgcolor = CHART_SURFACE,
+            # Real Natural Resources Canada atlas parameters (Lambert
+            # conformal conic, standard parallels 49N/77N, central meridian
+            # 96W) -- the projection Canada's own federal mapping agency
+            # uses for national-extent maps, far less distorting for a wide,
+            # high-latitude country than a generic Mercator/equirectangular
+            # default would be.
+            projection = list(type = "conic conformal", parallels = list(49, 77), rotation = list(lon = -96, lat = 49)),
+            # Manual bounds, not geo$fitbounds -- see GROWTH_MAP_LON_RANGE/
+            # GROWTH_MAP_LAT_RANGE's own comment for why.
+            lonaxis = list(range = as.list(GROWTH_MAP_LON_RANGE)),
+            lataxis = list(range = as.list(GROWTH_MAP_LAT_RANGE))
+          ),
+          paper_bgcolor = CHART_SURFACE,
+          font = list(color = INK_PRIMARY, family = FONT_FAMILY),
+          margin = list(t = 60, b = 10, l = 10, r = 10)
+        )
+    })
+
+    # The map's legend, per what was asked for: a plain ranked list -- rank,
+    # province/territory name, growth rate -- rather than Plotly's own
+    # gradient colourbar (turned off above, showscale = FALSE on both
+    # traces). A real <table> (not a styled <ul>, unlike this app's other
+    # legends -- see the Growth Accounting tab's .growth-legend-list) with
+    # its own scoped CSS class (see the .newtrends-legend-table rule in
+    # ui()) rather than Shiny's own tableOutput()/renderTable(): that
+    # renders through Bootstrap's/csls-shiny-theme.css's own `.table`
+    # selector (row-bottom borders by default -- see csls-shiny-theme.css
+    # section 9), which is exactly the gridlined look this was asked not to
+    # have, and fighting that with !important overrides would be messier
+    # than just not inheriting it in the first place.
+    output$legend_table <- renderUI({
+      pd <- ranked_data()
+      validate(need(
+        nrow(pd) > 0,
+        "No provinces or territories have data at both the start and end of the selected time frame -- pick a different range."
+      ))
+      tags$table(
+        class = "newtrends-legend-table",
+        tags$tbody(
+          lapply(seq_len(nrow(pd)), function(i) {
+            tags$tr(
+              tags$td(class = "newtrends-legend-rank", paste0(pd$Rank[i], ".")),
+              tags$td(class = "newtrends-legend-name", as.character(pd$Geography[i])),
+              tags$td(class = "newtrends-legend-value", sprintf("%.2f%%", pd$CAGR[i] * 100)),
+              # A small swatch, same shade the map itself fills this row's
+              # geography with (see ranked_data()'s own SwatchColor/
+              # interpolate_hex()) -- what actually ties this list back to
+              # the map as its legend, not just a plain ranking.
+              tags$td(
+                class = "newtrends-legend-swatch-cell",
+                tags$span(class = "newtrends-legend-swatch", style = paste0("background-color:", pd$SwatchColor[i], ";"))
+              )
+            )
+          })
+        )
+      )
+    })
+
+    output$variable_definition <- renderUI(variable_definition_ui(input$variable))
+
+    # raw_data() is the dependency, not the value used -- reading it just
+    # ties this to the same reactiveFileReader invalidation as this tab's
+    # own data, so the "as of" date updates the moment a new pipeline run
+    # lands, without this needing its own poll loop.
+    output$data_asof <- renderUI({
+      raw_data()
+      data_asof_ui()
+    })
+
+    output$download_csv <- downloadHandler(
+      filename = function() {
+        sprintf(
+          "productivity_growth-by-geography_%s_%s_%s-%s_%s.csv",
+          gsub("[^A-Za-z0-9]+", "-", input$variable),
+          gsub("[^A-Za-z0-9]+", "-", input$industry),
+          input$year_range[1], input$year_range[2], format(Sys.Date(), "%Y%m%d")
+        )
+      },
+      content = function(file) {
+        # ranked_data() is already sorted desc(CAGR) (rank #1 first) -- no
+        # separate arrange() needed here, unlike this tab's earlier
+        # percentile-based export.
+        out <- ranked_data() %>%
+          transmute(
+            Rank, Geography = as.character(Geography), Variable = input$variable, Industry = input$industry,
+            StartYear = input$year_range[1], StartValue, EndYear = input$year_range[2], EndValue,
+            `CAGR (%)` = CAGR * 100
+          )
+        write.csv(out, file, row.names = FALSE)
       }
     )
   })
@@ -3513,6 +3979,70 @@ ui <- function(request) {
           download_menu_ui() markup. */
        .growth-legend + .download-dropdown { margin-top: -0.75rem; }"
     )),
+    # The New Trends tab's map + ranked-legend-table pair (see
+    # newtrends_tab_ui()) -- as_fill_carrier() gives this row bslib's own
+    # html-fill-item/html-fill-container classes, which is what makes it
+    # stretch to fill the card the way a single plotlyOutput does on every
+    # other tab, but that class only supplies display:flex, no explicit
+    # direction -- flex-direction: row here is what actually splits the map
+    # and the legend panel side by side instead of bslib's own default
+    # stacking them. The generic `> div` rule (flex: 1 1 0, so the map
+    # grows to fill whatever room the fixed-width legend panel doesn't
+    # need -- flex-basis: 0 rather than Plotly's own inline width:100%,
+    # same reasoning as every other flex-split chart pair on this page) is
+    # then narrowed just for the legend panel to a fixed width: a ranked
+    # list of provinces only ever needs enough width for its longest name +
+    # percentage + swatch, never a growing share of the row. min-width/
+    # min-height: 0 is the same "let a flex item actually shrink below its
+    # own content size" fix already used throughout this page's fill chain
+    # (see .tab-content and friends above). Below 768px (this app's one
+    # existing breakpoint, see csls-shiny-theme.css) the panel stacks under
+    # the map instead, at its natural content height -- side by side, a map
+    # needs real width to be legible, and there isn't enough of it left
+    # over on a narrow screen once the sidebar and the legend panel both
+    # share it.
+    #
+    # The panel is itself a column flexbox with justify-content: center --
+    # its own content (the table, ~10 short rows) is nowhere near tall
+    # enough to fill the map's full height, and top-aligning it (the
+    # default) left a lot of dead space below on request; centering it
+    # vertically reads as one balanced legend alongside the map instead.
+    tags$style(HTML(
+      ".new-trends-chart-row { display: flex; flex-direction: row; min-height: 0; height: 100%; }
+       .new-trends-chart-row > div { flex: 1 1 0; min-width: 0; min-height: 0; }
+       .new-trends-chart-row > .new-trends-legend-panel {
+         flex: 0 0 300px; overflow-y: auto;
+         display: flex; flex-direction: column; justify-content: center;
+       }
+       @media (max-width: 768px) {
+         .new-trends-chart-row { flex-direction: column; }
+         .new-trends-chart-row > .new-trends-legend-panel { flex: 0 0 auto; }
+       }
+       /* A plain <table>, not Shiny's own tableOutput()/renderTable() --
+          see output$legend_table's own comment for why -- so every rule
+          below is scoped to this one class rather than the generic `.table`
+          selector csls-shiny-theme.css already styles (gridlines included)
+          for DT/Shiny's built-in tables. border-collapse: collapse +
+          border: none on every cell is what actually removes the
+          gridlines asked for; a bare <table> has no border of its own to
+          begin with, but browsers still render a default cell-spacing gap
+          without border-collapse, which reads as faint seams between rows. */
+       .newtrends-legend-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+       .newtrends-legend-table td { border: none; padding: 3px 0; }
+       .newtrends-legend-table td.newtrends-legend-rank { text-align: right; padding-right: 6px; white-space: nowrap; }
+       .newtrends-legend-table td.newtrends-legend-name { padding-right: 8px; }
+       .newtrends-legend-table td.newtrends-legend-value {
+         text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums;
+       }
+       /* The per-row colour swatch -- same small solid-circle shape this
+          app's other legend swatches already use (see e.g. the Growth
+          Accounting tab's .growth-legend-swatch/the pair-chip-list's own
+          .pair-chip-swatch), not a new shape introduced just for this one. */
+       .newtrends-legend-table td.newtrends-legend-swatch-cell { padding-left: 10px; }
+       .newtrends-legend-swatch {
+         display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%;
+       }"
+    )),
     # The Definitions tab (see definitions_tab_ui()'s own comment on why
     # title+subtitle are wrapped in .definitions-header to begin with). h4's
     # ~0.5rem margin-bottom (Bootstrap's own default heading rule;
@@ -3659,9 +4189,10 @@ ui <- function(request) {
     (function() {
       navset <- tagQuery(
         navset_pill(
+          nav_panel("Growth Map", newtrends_tab_ui("newtrends", init_df, variable_choices, industry_tree)),
+          nav_panel("Rankings", ranking_tab_ui("ranking", init_df, variable_choices, geography_tree)),
           nav_panel("Trends", trend_tab_ui("trend", init_df, variable_choices, industry_tree, geography_tree)),
           nav_panel("Compare", tab_module_ui("bar", init_df, "bar", variable_choices, industry_tree, geography_tree)),
-          nav_panel("Rankings", ranking_tab_ui("ranking", init_df, variable_choices, geography_tree)),
           nav_panel("Growth Accounting", growth_tab_ui("growth", init_df, industry_tree, geography_tree)),
           nav_panel("Data", tab_module_ui("table", init_df, "table", variable_choices, industry_tree, geography_tree)),
           nav_panel("Definitions", definitions_tab_ui())
@@ -3725,6 +4256,7 @@ server <- function(input, output, session) {
   variable_uom_lookup <- reactive(distinct(req(raw_data()), Variable, UOM))
 
   trend_tab_server("trend", raw_data, variable_uom_lookup)
+  newtrends_tab_server("newtrends", raw_data)
   ranking_tab_server("ranking", raw_data, variable_uom_lookup)
   tab_module_server("bar", raw_data, "bar", variable_uom_lookup)
   tab_module_server("table", raw_data, "table", variable_uom_lookup)

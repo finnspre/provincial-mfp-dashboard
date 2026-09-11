@@ -327,6 +327,55 @@ shiny::testServer(env$server, {
   stopifnot(!("Construction" %in% ranked2$Industry))
   cat("Construction (missing the start-year value) is excluded from the ranking OK\n")
 
+  cat("== New Trends: growth rate + rank, computed per Geography ==\n")
+  # No `newtrends-geography` input at all -- unlike every other tab, this one
+  # has no Geography picker (Geography is what it varies across, not a
+  # single scope to narrow to first; see newtrends_tab_ui()'s own comment).
+  session$setInputs(
+    `newtrends-variable` = "Multifactor productivity", `newtrends-industry` = env$DEFAULT_INDUSTRY,
+    `newtrends-year_range` = c(2021, 2023)
+  )
+  session$flushReact()
+  stopifnot(!is.null(output[["newtrends-map_chart"]]), !is.null(output[["newtrends-legend_table"]]))
+  nt <- read.csv(output[["newtrends-download_csv"]], check.names = FALSE)
+  stopifnot(setequal(nt$Geography, c("Ontario", "Quebec")))
+  ontario_cagr <- nt[["CAGR (%)"]][nt$Geography == "Ontario"] / 100
+  quebec_cagr <- nt[["CAGR (%)"]][nt$Geography == "Quebec"] / 100
+  stopifnot(close_enough(ontario_cagr, sqrt(102 / 100) - 1))
+  stopifnot(close_enough(quebec_cagr, sqrt(204 / 200) - 1))
+  # Business sector industries grows at exactly the same rate (+2% over the
+  # window) in both provinces at make_fixture()'s defaults -- a genuine tie,
+  # so ranked_data()'s ties.method = "min" should land both at #1 rather
+  # than an arbitrary win/lose.
+  stopifnot(all(nt$Rank == 1))
+  cat("New Trends CAGR matches (End/Start)^(1/years)-1 per Geography, tied growth -> tied (#1) rank OK\n")
+
+  cat("== New Trends: rank puts strictly-higher growth ahead of strictly-lower growth ==\n")
+  # Manufacturing's Ontario (95/96/97) and Quebec (150/153/156) values grow
+  # at genuinely different rates (see the Geography-filter check below), so
+  # unlike the tied default series above, this pins rank's actual ordering:
+  # the higher-CAGR province at #1, the lower-CAGR one at #2.
+  session$setInputs(`newtrends-industry` = "Manufacturing")
+  session$flushReact()
+  nt2 <- read.csv(output[["newtrends-download_csv"]], check.names = FALSE)
+  stopifnot(nt2$Rank[nt2$Geography == "Quebec"] == 1)
+  stopifnot(nt2$Rank[nt2$Geography == "Ontario"] == 2)
+  cat("higher-CAGR Quebec ranks #1, lower-CAGR Ontario ranks #2 OK\n")
+
+  cat("== New Trends guards a single-year window ==\n")
+  session$setInputs(`newtrends-year_range` = c(2022, 2022))
+  session$flushReact()
+  expect_validation_error(
+    tryCatch(output[["newtrends-map_chart"]], error = function(e) e),
+    "New Trends map (single-year window)"
+  )
+  expect_validation_error(
+    tryCatch(output[["newtrends-legend_table"]], error = function(e) e),
+    "New Trends legend table (single-year window)"
+  )
+  session$setInputs(`newtrends-industry` = env$DEFAULT_INDUSTRY, `newtrends-year_range` = c(2021, 2023))
+  session$flushReact()
+
   cat("== Geography filter: switching province re-scopes the data, not just the picker ==\n")
   # Manufacturing's Ontario values (95/96/97, set by make_fixture()'s
   # defaults) and Quebec values (150/153/156, see make_fixture()'s own
