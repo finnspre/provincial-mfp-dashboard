@@ -148,45 +148,48 @@ DEFAULT_GEOGRAPHY <- "Ontario"
 CANADA_GEOJSON_FILE <- "canada_provinces.geojson"
 CANADA_GEOJSON <- jsonlite::fromJSON(file.path("www", CANADA_GEOJSON_FILE), simplifyVector = FALSE)
 
-# 2-stop gradient for the New Trends tab's choropleth -- a deliberate,
-# explicit design choice (2 of this app's own brand colours, not a computed
-# single-hue ramp): each province/territory's fill blends continuously
-# between these by its own growth rate, a light tint of Jets Blue at the
-# lowest growth rate shown and full-strength Maple Leaf Blue at the highest.
-# The low end is deliberately NOT the plain BRAND_JETS_BLUE hex (a mid-
-# lightness blue, OKLCH L 0.645) -- against Maple Blue's own L of 0.324 that
-# left too narrow a lightness range for real growth-rate spreads (usually a
-# couple of points wide, not the full scale) to read as an "obvious"
-# gradient, per explicit feedback. Lightened toward white instead (60% of
-# the way from Jets Blue to white, i.e. still clearly the same blue hue --
-# 2.5 degree hue shift, negligible -- just paler): L 0.771 widens the
-# gradient's usable lightness range to 0.447 (vs 0.321 before), while still
-# clearing the same ~2:1 contrast-vs-white floor and ~0.10 OKLCH chroma
-# floor (reads as blue, not grey) this file's other computed colours are
-# held to (ported the dataviz skill's own OKLab/OKLCH + WCAG-contrast
-# formulas to Python to check it -- see CATEGORICAL_PALETTE's own header
-# comment for the same general method, applied there to a different check).
-# Re-run the same check (contrast(hex, "#FFFFFF"), oklch(hex)) before ever
-# changing this.
-GROWTH_MAP_LOW_COLOR <- "#69C1E8"
-# Plotly colorscale shape: a plain list of [fraction, colour] stops -- 2 is
-# enough for a straight 2-colour blend, no in-between stops needed. z is the
-# raw growth rate itself (not a percentile rank) with zauto left on, so 0/1
-# here really do map to "this selection's own lowest/highest growth rate",
-# not a fixed domain -- and GROWTH_MAP_LOW_COLOR/BRAND_MAPLE_BLUE (the same
-# 2 endpoints, not re-typed) is also what interpolate_hex() blends between
-# for the legend table's own per-province swatch (see
-# newtrends_tab_server()'s ranked_data()), so a row's swatch always matches
-# the shade the map itself fills that province with.
-GROWTH_MAP_COLORSCALE <- list(list(0, GROWTH_MAP_LOW_COLOR), list(1, BRAND_MAPLE_BLUE))
+# Fixed 6-step discrete palette for the New Trends tab's choropleth -- 3
+# reds (lowest growth shown) and 3 blues (highest growth shown), not tied
+# to CATEGORICAL_PALETTE/the CSLS brand colours (explicitly not required
+# here, per feedback). 2 earlier attempts are why this is what it is:
+# - A straight red-to-blue blend crosses purple partway through -- red and
+#   blue only differ in which RGB channel is high, so their midpoint has
+#   *both* high, i.e. purple (per feedback: no purple).
+# - A continuous fade-to-white-at-the-middle ramp fixed the purple, but
+#   still coloured every province by its own exact CAGR value -- 2
+#   provinces a fraction of a point apart could still land on visibly
+#   different shades, and a single outlier stretched/compressed everyone
+#   else's shade along with it (per feedback: don't correlate shade to the
+#   actual percentage).
+# This version breaks that value-dependence entirely: a fixed, small set of
+# hand-picked-to-look-good shades (not a formula over the raw growth rate),
+# assigned to geographies purely by their *rank position* in the list (see
+# ranked_data()'s own SwatchColor comment) -- 2 geographies 0.1 points
+# apart can land in different steps (if their ranks put them either side of
+# a step boundary) or the exact same step (if 2 far-apart geographies both
+# happen to fall in the same rank band), same as any classed/binned
+# choropleth. Computed once (blending white toward dark red/dark blue in
+# sRGB at 100%/60%/25% strength per side, verified against the rendered
+# map, not eyeballed) and pasted here as plain literals -- rank-based
+# assignment has no further use for a general-purpose colour-blending
+# helper at runtime, so none is kept in this file.
+GROWTH_MAP_COLOR_STEPS <- c(
+  "#7A0C0C", # darkest red -- lowest-ranked growth rates
+  "#AF6D6D", # medium red
+  "#DDC2C2", # lightest red
+  "#C1CBDA", # lightest blue
+  "#6A82A6", # medium blue
+  "#08306B"  # darkest blue -- highest-ranked growth rates
+)
 # "No data" fill for a geojson feature with nothing to colour (the 3
 # territories, or a province dropped for missing start/end-year data -- see
 # newtrends_tab_server()'s own dropped-geography handling) -- GRIDLINE
 # (Light Grey), the same already-recessive neutral this app's chart
 # gridlines use, reused here rather than inventing a new grey so "no data"
 # reads as deliberately muted/background rather than a plausible-looking
-# low-growth colour. Distinct from both gradient endpoints above, so
-# there's no confusion between "no data" and "lowest growth rate" either.
+# low-growth colour. Distinct from every step in GROWTH_MAP_COLOR_STEPS
+# above, so there's no confusion between "no data" and any actual rank
+# band.
 GROWTH_MAP_NO_DATA_COLOR <- GRIDLINE
 
 # Manual view window (lon/lat range) for the choropleth's `geo` layout --
@@ -291,20 +294,6 @@ blend_toward_grey <- function(hex, amount = GROWTH_TRUNCATED_DESATURATION) {
   channels <- grDevices::col2rgb(hex)[, 1]
   grey <- mean(channels)
   blended <- channels * (1 - amount) + grey * amount
-  grDevices::rgb(blended[1], blended[2], blended[3], maxColorValue = 255)
-}
-
-# Linearly interpolates between 2 hex colours in sRGB space at fraction `t`
-# (0 = `from`, 1 = `to`) -- plain per-channel RGB blending, the same method
-# Plotly itself uses between 2 colorscale stops, so this reproduces exactly
-# what colour the map fills a given z-value with. Used by the New Trends
-# tab's legend table (see ranked_data()) to give each row's swatch the same
-# shade GROWTH_MAP_COLORSCALE paints that province/territory on the map,
-# rather than a separately-eyeballed approximation.
-interpolate_hex <- function(from, to, t) {
-  from_rgb <- grDevices::col2rgb(from)[, 1]
-  to_rgb <- grDevices::col2rgb(to)[, 1]
-  blended <- from_rgb + t * (to_rgb - from_rgb)
   grDevices::rgb(blended[1], blended[2], blended[3], maxColorValue = 255)
 }
 
@@ -1485,10 +1474,10 @@ trend_tab_server <- function(id, raw_data, variable_uom_lookup) {
 # line for one chosen province. For the selected Variable/Industry/date
 # range, computes each province's (and, where the underlying data actually
 # has one, territory's) compound annual growth rate, then shows it as a
-# Canada choropleth (coloured by growth rate itself, see
-# GROWTH_MAP_COLORSCALE) next to a plain ranked list standing in for a
-# legend -- rank, name, growth rate, one row per geography, sorted highest
-# growth first (see output$legend_table). No Geography picker (unlike every
+# Canada choropleth (coloured by rank position, see GROWTH_MAP_COLOR_STEPS)
+# next to a plain ranked list standing in for a legend -- rank, name,
+# growth rate, one row per geography, sorted highest growth first (see
+# output$legend_table). No Geography picker (unlike every
 # other tab) -- Geography is exactly what this tab varies across, not a
 # single scope to narrow to first -- and no "More options" disclosure:
 # unlike Trends, this tab has only 4 sidebar controls total, short enough to
@@ -1547,15 +1536,25 @@ newtrends_tab_ui <- function(id, init_df, variable_choices, industry_tree) {
       # instead. The legend panel itself is a fixed width (that same CSS),
       # not an even split -- a ranked list of provinces only ever needs
       # enough width for its longest name + percentage + swatch, and every
-      # bit of width beyond that is better spent on the map. No heading
-      # above the table (there was one; dropped at explicit request so this
-      # reads as this tab's legend -- the map's own colourbar was turned
-      # off in favour of it -- not a 2nd, separate table alongside the map).
+      # bit of width beyond that is better spent on the map. A previous
+      # heading here ("this tab's legend") was dropped at explicit request
+      # so the panel didn't read as a 2nd, separate table alongside the map.
+      # The small caption now above just the ranked list (not spanning the
+      # map too) is narrower in scope than that -- it isn't relabelling the
+      # panel, just stating the one unit both the map's colours and this
+      # table's numbers share (per explicit request: make clear these are
+      # annualized rates, not a raw period-over-period change), the same
+      # static-markup pattern as the Growth Accounting tab's own "What each
+      # colour shows" legend heading.
       as_fill_carrier(
         tags$div(
           class = "new-trends-chart-row",
           plotlyOutput(ns("map_chart"), height = "100%"),
-          tags$div(class = "new-trends-legend-panel", uiOutput(ns("legend_table")))
+          tags$div(
+            class = "new-trends-legend-panel",
+            tags$div(class = "new-trends-legend-title", tags$strong("Annualized growth rate (CAGR)")),
+            uiOutput(ns("legend_table"))
+          )
         ),
         gap = "24px"
       ),
@@ -1675,17 +1674,24 @@ newtrends_tab_server <- function(id, raw_data) {
       gd <- growth_data() %>% filter(!is.na(CAGR)) %>% arrange(desc(CAGR))
       gd$Rank <- rank(desc(gd$CAGR), ties.method = "min")
       gd$Geography <- factor(gd$Geography, levels = gd$Geography)
-      # Each row's own position along GROWTH_MAP_COLORSCALE (0 = lowest
-      # growth rate shown, 1 = highest) -- same min-max scaling zauto itself
-      # applies to the map's z values, computed here explicitly so
-      # interpolate_hex() can reproduce that exact shade for the legend
-      # table's swatch. A degenerate range (every shown geography growing
-      # at the *exact* same rate -- diff() == 0) has no well-defined
-      # position to solve for; 0.5 (the gradient's midpoint) is as
-      # defensible a stand-in as any single value, and avoids a 0/0 divide.
-      cagr_range <- diff(range(gd$CAGR))
-      gd$SwatchT <- if (isTRUE(cagr_range == 0)) rep(0.5, nrow(gd)) else (gd$CAGR - min(gd$CAGR)) / cagr_range
-      gd$SwatchColor <- vapply(gd$SwatchT, function(t) interpolate_hex(GROWTH_MAP_LOW_COLOR, BRAND_MAPLE_BLUE, t), character(1))
+      # Each row's own step in GROWTH_MAP_COLOR_STEPS, picked by *rank
+      # position* (order in the list), not by CAGR itself -- per explicit
+      # feedback, a province's shade shouldn't be a function of the actual
+      # percentage (that's what the earlier value-based ramp did, and 2
+      # provinces a fraction of a point apart could visibly differ while a
+      # single outlier compressed everyone else). n_ranks <= 1 (every shown
+      # geography tied on Rank, including the single-row case) has no
+      # ordering to place along the steps -- middle step is as defensible a
+      # stand-in as any one value, and avoids a 0/0 divide. Otherwise,
+      # Rank 1 (highest growth) always lands on the last step and the
+      # lowest rank always lands on the first, regardless of how many
+      # geographies are shown or how many rank values are tied in between.
+      n <- nrow(gd)
+      n_ranks <- length(unique(gd$Rank))
+      k <- length(GROWTH_MAP_COLOR_STEPS)
+      order_t <- if (n_ranks <= 1) rep(0.5, n) else (n - gd$Rank) / (n - 1)
+      step_idx <- pmin(k, pmax(1, 1 + round(order_t * (k - 1))))
+      gd$SwatchColor <- GROWTH_MAP_COLOR_STEPS[step_idx]
       gd
     })
 
@@ -1705,7 +1711,7 @@ newtrends_tab_server <- function(id, raw_data) {
       # keeps it out of the (already-removed, see the legend table instead)
       # colourbar entirely, since it isn't data.
       all_names <- vapply(CANADA_GEOJSON$features, function(f) f$properties$name, character(1))
-      plot_ly() %>%
+      p <- plot_ly() %>%
         add_trace(
           type = "choropleth", geojson = CANADA_GEOJSON, featureidkey = "properties.name",
           locations = all_names, z = rep(0, length(all_names)),
@@ -1713,26 +1719,34 @@ newtrends_tab_server <- function(id, raw_data) {
           showscale = FALSE, marker = list(line = list(color = CHART_SURFACE, width = 0.75)),
           hovertemplate = "<b>%{location}</b><br>No data<extra></extra>",
           geo = "geo"
-        ) %>%
-        add_trace(
-          data = pd, type = "choropleth", geojson = CANADA_GEOJSON, featureidkey = "properties.name",
-          locations = ~as.character(Geography), z = ~(CAGR * 100), customdata = ~Rank,
-          # zauto (Plotly's own default -- left on, no zmin/zmax here) scales
-          # the gradient to *this selection's* own lowest/highest growth
-          # rate, matching GROWTH_MAP_COLORSCALE's own comment: Jets Blue is
-          # always whichever province/territory grew the least, Maple Blue
-          # whichever grew the most, not 2 fixed values on an absolute scale.
-          colorscale = GROWTH_MAP_COLORSCALE,
+        )
+      # One flat-colour trace per GROWTH_MAP_COLOR_STEPS step actually used
+      # among the shown geographies (usually all 6, fewer once very few
+      # geographies are shown) -- not a single z + colorscale trace, since
+      # that would hand Plotly the raw CAGR and let *it* interpolate a
+      # colour proportional to the value, exactly the value-correlated
+      # shading this step palette exists to avoid (see
+      # GROWTH_MAP_COLOR_STEPS's own comment). z is a dummy 0 here, same
+      # "flat colour, not real data" trick the no-data trace above already
+      # uses; the real growth rate for hover text comes from `text`
+      # (%{z:.2f} isn't available once z stops carrying it).
+      for (step_color in unique(pd$SwatchColor)) {
+        grp <- pd[pd$SwatchColor == step_color, , drop = FALSE]
+        p <- p %>% add_trace(
+          data = grp, type = "choropleth", geojson = CANADA_GEOJSON, featureidkey = "properties.name",
+          locations = ~as.character(Geography), z = rep(0, nrow(grp)),
+          text = ~sprintf("%.2f", CAGR * 100), customdata = ~Rank,
+          colorscale = list(list(0, step_color), list(1, step_color)),
           # showscale = FALSE -- no Plotly colourbar; output$legend_table is
           # this tab's legend now (a plain ranked list, per what was asked
           # for), not a gradient bar.
           showscale = FALSE,
-          marker = list(line = list(color = CHART_SURFACE, width = 0.75)),
-          hovertemplate = paste0(
-            "<b>%{location}</b><br>Growth rate: %{z:.2f}%<br>Rank: #%{customdata}<extra></extra>"
-          ),
+          marker = list(line = list(color = GRIDLINE, width = 0.75)),
+          hovertemplate = "<b>%{location}</b><br>Growth rate: %{text}%<br>Rank: #%{customdata}<extra></extra>",
           geo = "geo"
-        ) %>%
+        )
+      }
+      p %>%
         layout(
           # Reuses display_chart_title() exactly as the Trends tab does
           # (Variable + year range), with Industry as the subtitle in place
@@ -1797,9 +1811,9 @@ newtrends_tab_server <- function(id, raw_data) {
               tags$td(class = "newtrends-legend-name", as.character(pd$Geography[i])),
               tags$td(class = "newtrends-legend-value", sprintf("%.2f%%", pd$CAGR[i] * 100)),
               # A small swatch, same shade the map itself fills this row's
-              # geography with (see ranked_data()'s own SwatchColor/
-              # interpolate_hex()) -- what actually ties this list back to
-              # the map as its legend, not just a plain ranking.
+              # geography with (see ranked_data()'s own SwatchColor) --
+              # what actually ties this list back to the map as its
+              # legend, not just a plain ranking.
               tags$td(
                 class = "newtrends-legend-swatch-cell",
                 tags$span(class = "newtrends-legend-swatch", style = paste0("background-color:", pd$SwatchColor[i], ";"))
@@ -4018,6 +4032,13 @@ ui <- function(request) {
          .new-trends-chart-row { flex-direction: column; }
          .new-trends-chart-row > .new-trends-legend-panel { flex: 0 0 auto; }
        }
+       /* The caption above the ranked list (see newtrends_tab_ui()'s own
+          comment) -- same tags$strong() heading style as the Growth
+          Accounting tab's own .growth-legend What-each-colour-shows
+          heading, just a size step down (13px, matching the table's own
+          14px body text) and a small bottom margin to separate it from
+          the first row. */
+       .new-trends-legend-title { font-size: 13px; margin-bottom: 4px; }
        /* A plain <table>, not Shiny's own tableOutput()/renderTable() --
           see output$legend_table's own comment for why -- so every rule
           below is scoped to this one class rather than the generic `.table`
